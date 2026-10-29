@@ -31,6 +31,7 @@ header.top h1{font-size:24px;color:var(--main)}
 .muted{color:var(--sub);font-size:15px}
 .hide{display:none!important}
 .err{color:var(--bad);min-height:1.5em;font-size:15px}
+.warnbar{background:var(--warn-soft);color:#9a4a12;border-radius:14px;padding:10px 14px;font-size:15px;margin-bottom:12px}
 .banner{background:var(--sky-soft);color:var(--sky);border-radius:14px;padding:10px 14px;font-size:15px;margin-bottom:12px}
 
 /* 로그인 */
@@ -52,6 +53,9 @@ header.top h1{font-size:24px;color:var(--main)}
 .passage .ln{min-height:1em}
 .passage .w{border-radius:6px;padding:0 2px;transition:background .2s}
 .passage .w.say{background:#fff2b8}
+.passage .s{transition:color .15s,background .15s;border-radius:4px}
+.passage .s.rd{color:#1f7a57;background:#d9f2e6}
+.passage .w.now{box-shadow:0 4px 0 -1px var(--gold)}
 .passage .w.miss{background:var(--bad-soft);color:var(--bad);text-decoration:underline wavy var(--bad)}
 .mk{font-family:'Jua';font-size:.75em;margin:0 4px;color:var(--sky);vertical-align:super}
 .mk.hit{color:var(--main)}
@@ -139,11 +143,13 @@ th{color:var(--sub);font-weight:400}
 
   <!-- 읽기 -->
   <section id="scr-read" class="hide">
+    <div id="srWarn" class="warnbar hide"></div>
     <div class="card">
       <div class="row" style="justify-content:space-between">
         <div><span id="rGenre" class="badge"></span> <h2 id="rTitle" style="display:inline"></h2></div>
         <div class="row">
           <button id="btnListen" class="soft small">🔊 먼저 들어 보기</button>
+          <button id="btnCheck" class="ghost small">🎙 마이크 점검</button>
           <label class="muted"><input type="checkbox" id="chkMarks" checked style="width:auto"> 쉬는 표시</label>
         </div>
       </div>
@@ -177,7 +183,7 @@ th{color:var(--sub);font-weight:400}
     </div>
     <div class="card">
       <h3>내가 읽은 글</h3>
-      <p class="muted">빨간 낱말은 다시 연습해요. 쉬는 표시가 <span style="color:var(--main)">초록색</span>이면 잘 쉬었고, <span style="color:var(--warn)">주황색</span>이면 쉬지 않았어요.</p>
+      <p class="muted"><span style="color:#1f7a57;background:#d9f2e6;border-radius:4px;padding:0 3px">초록 글자</span>는 정확히 읽은 글자예요. 빨간 낱말은 다시 연습해요. 쉬는 표시가 <span style="color:var(--main)">초록색</span>이면 잘 쉬었고, <span style="color:var(--warn)">주황색</span>이면 쉬지 않았어요.</p>
       <div id="resText" class="passage"></div>
       <p class="muted" id="resHeard"></p>
     </div>
@@ -340,9 +346,9 @@ function parsePassage(text) {
   lines.forEach((ln, li) => {
     const startLen = words.length;
     ln.trim().split(/\s+/).filter(Boolean).forEach(tok => {
-      const isMark = /^(\/\/|\/|∨|≫)$/.test(tok);
+      const isMark = /^(\/\/|\/|∨∨|∨|≫)$/.test(tok);
       let w = tok, m = 0;
-      const g = isMark ? [tok, tok] : tok.match(/(\/\/|\/|∨|≫)$/);
+      const g = isMark ? [tok, tok] : tok.match(/(\/\/|\/|∨∨|∨|≫)$/);
       if (g) { m = (g[1] === '/' || g[1] === '∨') ? 1 : 2; w = isMark ? '' : tok.slice(0, -g[1].length); }
       if (w) words.push({ w, line: li, mark: m });
       else if (m && words.length) words[words.length - 1].mark = Math.max(words[words.length - 1].mark, m);
@@ -385,7 +391,7 @@ function align(T, H) {
 
 function scoreAccuracy(P, heard) {
   const T = P.syl.map(s => s.c), H = [...heard].filter(ch => SYL.test(ch));
-  if (!H.length) return { score: 0, wordOk: P.words.map(() => false) };
+  if (!H.length) return { score: 0, wordOk: P.words.map(() => false), ok: [] };
   const { ok, ins } = align(T, H);
   const matched = ok.filter(Boolean).length;
   const wordOk = P.words.map((w, wi) => {
@@ -393,7 +399,7 @@ function scoreAccuracy(P, heard) {
     if (!idx.length) return true;
     return idx.filter(k => ok[k]).length / idx.length >= 0.75;
   });
-  return { score: Math.round(clamp(100 * (matched - 0.3 * ins) / T.length)), wordOk };
+  return { score: Math.round(clamp(100 * (matched - 0.3 * ins) / T.length)), wordOk, ok };
 }
 
 // 소리 크기 기록에서 말한 구간과 쉰 구간을 찾는다
@@ -513,7 +519,13 @@ function renderPassage(el, P, opt) {
     (byLine[li] || []).forEach(i => {
       const w = P.words[i];
       const miss = opt.wordOk && !opt.wordOk[i] ? ' miss' : '';
-      html += `<span class="w${miss}" data-i="${i}">${esc(w.w)}</span>`;
+      let inner = '';
+      let k = i ? P.words[i - 1].end : 0;
+      for (const ch of w.w) {
+        if (SYL.test(ch)) { inner += `<span class="s${opt.ok && opt.ok[k] ? ' rd' : ''}" data-s="${k}">${esc(ch)}</span>`; k++; }
+        else inner += esc(ch);
+      }
+      html += `<span class="w${miss}" data-i="${i}">${inner}</span>`;
       if (w.mark && i < P.words.length - 1) {
         const ei = P.expected.findIndex(e => e.wi === i);
         const cls = opt.hits ? (opt.hits[ei] ? ' hit' : ' lost') : '';
@@ -609,6 +621,9 @@ function openRead(pid) {
   $('rTitle').textContent = p.title; $('rGenre').textContent = p.genre;
   renderPassage($('rText'), current.P);
   $('interim').textContent = ''; $('readErr').textContent = ''; $('recTime').textContent = '';
+  const badBrowser = !SR || /Whale|SamsungBrowser|KAKAOTALK|NAVER/i.test(navigator.userAgent);
+  $('srWarn').textContent = badBrowser ? '이 브라우저에서는 발음 확인과 읽은 글자 표시가 되지 않을 수 있어요. 크롬(Chrome)으로 열어 주세요.' : '';
+  $('srWarn').classList.toggle('hide', !badBrowser);
   $('lvl').style.width = '0';
   const pct = db => clamp((db + 60) / 60 * 100);
   $('zone').style.left = pct(VOL_LOW) + '%'; $('zone').style.width = (pct(VOL_HIGH) - pct(VOL_LOW)) + '%';
@@ -641,16 +656,64 @@ $('btnListen').onclick = async () => {
   stopListen();
 };
 
-// 녹음: 마이크 소리 크기(쉬는 곳·크기·빠르기) + 음성 인식(정확도)을 함께 받는다
+// 녹음: 음성 인식(읽은 글자 표시·정확도) + 마이크 소리 크기(쉬는 곳·크기·빠르기)
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const rec = { on: false };
+const SR_MSG = {
+  'network': '음성 인식 서버(구글)에 연결하지 못했어요. 학교 인터넷에서 막혀 있을 수 있어요.',
+  'not-allowed': '음성 인식 권한이 막혀 있어요. 주소창 옆 자물쇠에서 마이크를 허용하고, 크롬에서 열어 주세요.',
+  'service-not-allowed': '이 브라우저에서는 음성 인식을 쓸 수 없어요. 크롬에서 열어 주세요.',
+  'audio-capture': '음성 인식이 마이크를 쓰지 못했어요. 다른 프로그램이 마이크를 쓰고 있지 않은지 확인해 주세요.',
+  'language-not-supported': '이 기기에서 한국어 음성 인식을 지원하지 않아요.'
+};
+
+// 지금까지 알아들은 말과 지문을 맞대어, 읽은 글자에 색을 칠한다
+function liveMark(text) {
+  const P = current.P, el = $('rText');
+  const H = [...text].filter(ch => SYL.test(ch));
+  const { ok } = H.length ? align(P.syl.map(x => x.c), H) : { ok: [] };
+  let last = -1;
+  el.querySelectorAll('.s').forEach(sp => { const k = +sp.dataset.s; const on = !!ok[k]; sp.classList.toggle('rd', on); if (on) last = Math.max(last, k); });
+  el.querySelectorAll('.w.now').forEach(x => x.classList.remove('now'));
+  const next = P.syl[last + 1];
+  if (next) { const w = el.querySelector(`[data-i="${next.wi}"]`); if (w) { w.classList.add('now'); if (w.getBoundingClientRect().bottom > innerHeight - 140) w.scrollIntoView({ block: 'center', behavior: 'smooth' }); } }
+}
+
+function makeSR(onText) {
+  const r = new SR();
+  r.lang = 'ko-KR'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  const st = { finals: [], interim: '', err: '', alive: true, restarts: 0 };
+  r.onresult = e => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) st.finals.push(e.results[i][0].transcript); else interim += e.results[i][0].transcript;
+    }
+    st.interim = interim;
+    onText((st.finals.join(' ') + ' ' + interim).trim());
+  };
+  r.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') st.err = e.error; };
+  r.onend = () => {
+    const fatal = st.err && st.err !== 'network';
+    if (st.alive && !fatal && st.restarts < 30) { st.restarts++; setTimeout(() => { try { r.start(); } catch (x) {} }, 120); }
+    else if (st.done) st.done();
+  };
+  st.stop = () => new Promise(res => { st.alive = false; st.done = res; try { r.stop(); } catch (x) { res(); } setTimeout(res, 2500); });
+  st.text = () => (st.finals.join(' ') + ' ' + st.interim).trim();
+  try { r.start(); } catch (x) { st.err = 'start-failed'; }
+  return st;
+}
+
 async function startRecording() {
   stopListen();
   $('readErr').textContent = '';
+  renderPassage($('rText'), current.P);
+  // 음성 인식을 버튼을 누른 바로 그 순간에 먼저 켠다
+  rec.srs = SR ? makeSR(t => { $('interim').textContent = '🗣 ' + t; liveMark(t); }) : null;
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: false } });
   } catch (e) {
+    if (rec.srs) rec.srs.stop();
     const policy = /policy|not allowed in this document/i.test(e.message || '');
     $('readErr').textContent = policy || IN_GAS
       ? '이 화면(구글 Apps Script 주소)에서는 브라우저가 마이크를 막아요. 선생님이 안내한 새 주소에서 열어 주세요. (' + e.name + ')'
@@ -662,7 +725,7 @@ async function startRecording() {
   const an = ctx.createAnalyser(); an.fftSize = 1024;
   ctx.createMediaStreamSource(stream).connect(an);
   const buf = new Float32Array(an.fftSize), t0 = performance.now();
-  Object.assign(rec, { on: true, stream, ctx, frames: [], finals: [], interim: '', srOk: !!SR, srErr: '' });
+  Object.assign(rec, { on: true, stream, ctx, frames: [] });
   rec.timer = setInterval(() => {
     an.getFloatTimeDomainData(buf);
     let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
@@ -672,54 +735,42 @@ async function startRecording() {
     $('recTime').innerHTML = `<span class="dot"></span> ${Math.floor(t)}초`;
     if (t > 180) stopRecording();
   }, 30);
-  if (SR) {
-    const r = new SR(); rec.sr = r;
-    r.lang = 'ko-KR'; r.continuous = true; r.interimResults = true;
-    r.onresult = e => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) rec.finals.push(e.results[i][0].transcript); else interim += e.results[i][0].transcript;
-      }
-      rec.interim = interim;
-      $('interim').textContent = '🗣 ' + (rec.finals.join(' ') + ' ' + interim).trim();
-    };
-    r.onerror = e => {
-      if (e.error === 'no-speech' || e.error === 'aborted') return;
-      rec.srErr = e.error;
-      if (e.error === 'not-allowed' || e.error === 'audio-capture' || e.error === 'service-not-allowed') rec.srOk = false;
-    };
-    r.onend = () => {
-      if (rec.on && rec.srOk) { try { r.start(); } catch (e) {} } // 크롬은 잠깐 조용하면 저절로 멈춰서 다시 켠다
-      else if (rec.srDone) rec.srDone();
-    };
-    try { r.start(); } catch (e) { rec.srOk = false; }
-  }
   $('btnRec').textContent = '■ 다 읽었어요'; $('btnRec').classList.add('rec');
-  $('btnListen').disabled = true;
+  $('btnListen').disabled = true; $('btnCheck').disabled = true;
 }
 async function stopRecording(cancel) {
   if (!rec.on) return;
   rec.on = false;
   clearInterval(rec.timer);
   $('btnRec').disabled = true; $('btnRec').textContent = '채점하는 중…';
-  if (rec.sr) {
-    await new Promise(res => { rec.srDone = res; try { rec.sr.stop(); } catch (e) { res(); } setTimeout(res, 2500); });
-  }
+  if (rec.srs) await rec.srs.stop();
   rec.stream.getTracks().forEach(t => t.stop());
   try { rec.ctx.close(); } catch (e) {}
   $('btnRec').disabled = false; $('btnRec').textContent = '🎤 읽기 시작'; $('btnRec').classList.remove('rec');
-  $('btnListen').disabled = false; $('lvl').style.width = '0';
+  $('btnListen').disabled = false; $('btnCheck').disabled = false; $('lvl').style.width = '0';
   if (cancel) return;
-  let heard = rec.finals.join(' ');
-  if (rec.interim && heard.replace(/\s/g, '').length < current.P.syl.length * 0.5) heard = (heard + ' ' + rec.interim).trim();
-  if (rec.srErr === 'network') rec.srOk = false;
-  const R = evaluate(current.P, current.p.genre, heard, rec.frames, rec.srOk);
+  const heard = rec.srs ? rec.srs.text() : '';
+  const srErr = rec.srs ? rec.srs.err : 'unsupported';
+  const srOk = !!heard;
+  const R = evaluate(current.P, current.p.genre, heard, rec.frames, srOk);
   if (!R) { $('readErr').textContent = '목소리가 잘 들리지 않았어요. 마이크 가까이에서 다시 읽어 볼까요?'; return; }
-  if (rec.srOk && R.acc && R.acc.score === 0 && !heard) { $('readErr').textContent = '말소리를 알아듣지 못했어요. 인터넷 연결을 확인하고 다시 읽어 볼까요?'; return; }
   R.heard = heard;
-  R.srNote = !rec.srOk ? (SR ? '음성 인식을 쓸 수 없어서 또박또박 점수는 빼고 계산했어요.' : '이 브라우저는 음성 인식을 지원하지 않아서 또박또박 점수는 빼고 계산했어요. 크롬을 쓰면 모두 평가할 수 있어요.') : '';
+  R.srNote = srOk ? '' : !SR ? '이 브라우저는 음성 인식을 지원하지 않아 또박또박 점수는 빼고 계산했어요. 크롬에서 열어 주세요.'
+    : (SR_MSG[srErr] || '말소리를 글자로 바꾸지 못했어요. 조금 더 크고 또박또박 읽어 보세요.') + ' (또박또박 점수는 빼고 계산했어요' + (srErr ? ' · ' + srErr : '') + ')';
   showResult(R);
 }
+
+// 마이크 점검: 음성 인식만 8초 켜서 알아듣는지 바로 보여 준다
+$('btnCheck').onclick = () => {
+  if (!SR) { modal('<h2>🎙 마이크 점검</h2><p>이 브라우저는 음성 인식을 지원하지 않아요. <b>크롬(Chrome)</b>에서 열어 주세요.</p><div class="row"><button class="ghost" data-close>닫기</button></div>'); return; }
+  modal('<h2>🎙 마이크 점검</h2><p>“안녕하세요, 저는 3학년입니다.”라고 말해 보세요. (8초)</p><div class="field" id="chkOut" style="min-height:60px;font-size:20px;background:#f3efe6;border-radius:12px;padding:12px">듣고 있어요…</div><p class="muted" id="chkMsg"></p><div class="row"><button class="ghost" data-close>닫기</button></div>');
+  const st = makeSR(t => { $('chkOut').textContent = t; });
+  setTimeout(async () => {
+    await st.stop();
+    const t = st.text();
+    $('chkMsg').textContent = t ? '✓ 잘 알아들었어요! 이제 읽기를 시작해도 돼요.' : (SR_MSG[st.err] || '아무 말도 알아듣지 못했어요. 마이크 연결과 소리 크기를 확인해 주세요.') + (st.err ? ' (' + st.err + ')' : '');
+  }, 8000);
+};
 $('btnRec').onclick = () => rec.on ? stopRecording() : startRecording();
 
 /* ================= 결과 ================= */
@@ -737,7 +788,7 @@ async function showResult(R) {
     area('∨ 띄어 읽기', R.pause.score, t.pause, `쉬어야 할 곳 ${current.P.expected.length}곳 중 ${R.pause.hits.filter(Boolean).length}곳에서 쉬었어요.`) +
     area('🔈 목소리 크기', R.vol.score, t.vol) +
     area('⏱ 빠르기', R.speed.score, t.speed, `1분에 ${R.spm}글자 (알맞음 ${R.speed.lo}~${R.speed.hi})`);
-  renderPassage($('resText'), current.P, { wordOk: R.acc ? R.acc.wordOk : null, hits: R.pause.hits });
+  renderPassage($('resText'), current.P, { wordOk: R.acc ? R.acc.wordOk : null, ok: R.acc ? R.acc.ok : null, hits: R.pause.hits });
   $('resHeard').textContent = R.heard ? '알아들은 말: ' + R.heard : '';
   show('scr-result');
   const missed = R.acc ? current.P.words.filter((w, i) => !R.acc.wordOk[i]).map(w => w.w.replace(/[^가-힣a-zA-Z0-9]/g, '')).join(', ') : '';
